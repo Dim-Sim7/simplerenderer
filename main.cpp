@@ -38,7 +38,7 @@ void triangle(
     //check if a pixel does not belong to triangle using barycentric coords
     // iterate through box, each pixel, compute barycentric coords. if at least 1 negative component, it is outside triangle
 
-#pragma omp parallel for //paralle processing command
+#pragma omp parallel for //parallel processing command
     for (int x=bbminx; x<=bbmaxx; x++) {
         for (int y=bbminy; y<=bbmaxy; y++) {
             double alpha = signed_triangle_area(x, y, bx, by, cx, cy) / total_area;
@@ -47,7 +47,7 @@ void triangle(
 
             if (alpha < 0 || beta < 0 || gamma < 0) continue; //negative barycentric coordinate => the pixel is outside the triangle
             double z = alpha * az + beta * bz + gamma * cz;
-            if (z <= zbuffer[x+y*width]) continue;
+            if (z <= zbuffer[x + y * width]) continue;
             zbuffer[x+y*width] = z;
             framebuffer.set(x, y, color);
         }
@@ -59,20 +59,28 @@ void triangle(
 
 vec3 rot(vec3 v) {
     constexpr double a = M_PI/6;
-    constexpr mat<3,3> Ry = {{{std::cos(a), 0, std::sin(a)}, {0,1,0}, {-std::sin(a), 0, std::cos(a)}}};
-    return Ry*v;
+    mat4 Ry = rotation_y(a);
+    return transform_point(Ry, v);
 }
 
 std::tuple<int,int,int> project(vec3 v) { // First of all, (x,y) is an orthogonal projection of the vector (x,y,z).
     return { (v.x + 1.) *  width/2,       // Second, since the input models are scaled to have fit in the [-1,1]^3 world coordinates,
              (v.y + 1.) * height/2,       // we want to shift the vector (x,y) and then scale it to span the entire screen.
-             (v.z + 1.) *   255./2 };
+             (v.z + 1.) *   255.0/2 };
 }
 
 
 vec3 persp(vec3 v) {
-    constexpr double c = 3.;
-    return v / (1-v.z/c);
+    constexpr double c = 3.0;
+    return v / (1 - v.z / c);
+}
+
+void viewport(const int x, const int y, const int w, const int h) {
+    Viewport = {{{w/2., 0, 0, x+w/2.}, {0, h/2., 0, y+h/2.}, {0,0,1,0}, {0,0,0,1}}};
+}
+
+void perspective(const double f) {
+    Perspective = {{{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0, -1/f,1}}};
 }
 
 void renderModel(std::vector<vec3>& vertices, std::vector<Face>& faces, std::vector<double> &zbuffer, TGAImage &framebuffer, int width, int height) {
