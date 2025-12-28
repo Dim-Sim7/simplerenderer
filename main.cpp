@@ -8,7 +8,7 @@
 constexpr int width  = 800;
 constexpr int height = 800;
 
-
+mat4 ModelView, Viewport, Perspective;
 
 double signed_triangle_area(int ax, int ay, int bx, int by, int cx, int cy) {
     return .5*((by-ay)*(bx+ax) + (cy-by)*(cx+bx) + (ay-cy)*(ax+cx));
@@ -63,20 +63,18 @@ vec3 rot(vec3 v) {
     return transform_point(Ry, v);
 }
 
-std::tuple<int,int,int> project(vec3 v) { // First of all, (x,y) is an orthogonal projection of the vector (x,y,z).
-    return { (v.x + 1.) *  width/2,       // Second, since the input models are scaled to have fit in the [-1,1]^3 world coordinates,
-             (v.y + 1.) * height/2,       // we want to shift the vector (x,y) and then scale it to span the entire screen.
-             (v.z + 1.) *   255.0/2 };
-}
-
 
 vec3 persp(vec3 v) {
     constexpr double c = 3.0;
     return v / (1 - v.z / c);
 }
 
-void viewport(const int x, const int y, const int w, const int h) {
-    Viewport = {{{w/2., 0, 0, x+w/2.}, {0, h/2., 0, y+h/2.}, {0,0,1,0}, {0,0,0,1}}};
+void viewport(const int x, const int y, const int w, const int h) { //initialise viewport matrix
+    Viewport = {{{w/2.0,   0,   0, x+w/2.0}, 
+                 {0,     h/2.0, 0, y+h/2.0}, 
+                 {0,       0,   1,    0  }, 
+                 {0,       0,   0,    1  }
+                }};
 }
 
 void perspective(const double f) {
