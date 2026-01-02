@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <iostream>
 #include "graphics_library.h"
 #include "model.h"
 
@@ -10,8 +11,9 @@ struct PhongReflectionShader : IShader {
     const Model &model;
     vec4 lightDir;                      //light direction in eye coords
 
-    vec2 varying_uv[3];              //vn -- normal per vertex to be interp by frag shader
-    vec4 varying_pos[3];            
+    vec2 varying_uv[3];        //vn -- normal per vertex to be interp by frag shader
+    vec4 varying_norm[3];      // normal per vertex to be interpolated by the fragment shader    
+    vec4 tri[3];               // triangle in view coordinates
 
     PhongReflectionShader(const Model &m) : model(m) {
         lightDir = normalize((ModelView * vec4{sunRayDirection.x, sunRayDirection.y, sunRayDirection.z, 0.0})); // transform the light vector to view coordinates
@@ -20,42 +22,46 @@ struct PhongReflectionShader : IShader {
     //this method is called per triangle vertex (3 times for 1 face)
     virtual vec4 vertex(const int face, const int vert) {
         varying_uv[vert] = model.uv(face, vert);
+        varying_norm[vert] = ModelView.invert_transpose() * model.normal(face, vert);
         vec4 gl_Position = ModelView * model.vert(face, vert);
-        varying_pos[vert] = gl_Position;
+        tri[vert] = gl_Position;
         return Perspective * gl_Position;                           // transforms to clip space (final value to project vertex onto screen)
     }
 
     // bar = barycentric coords of current pixel within triangle, normally used to interpolate vertex attributes
     virtual std::pair<bool, TGAColor> fragment(const vec3 bar) const {
-        TGAColor gl_FragColor = { 255, 255, 255, 255 };     // output color of the fragment
+        //TGAColor gl_FragColor = { 255, 255, 255, 255 };     // output color of the fragment
                                        //constant fill light
-        double diffuse;
-        double specular;
-        double ambient = 0.2;
+        vec2 uv = varying_uv[0]*bar[0] + varying_uv[1]*bar[1] + varying_uv[2]*bar[2];
 
-        vec2 uv = varying_uv[0] * bar[0] + varying_uv[1] * bar[1] + varying_uv[2] * bar[2];
-        vec4 normal = normalize(ModelView.invert_transpose() * model.normal(uv));
-        vec4 reflection = normalize(normal * (normal * lightDir) * 2.0  - lightDir);
-        
-        diffuse = std::max(0.0, dot(normal, lightDir));
+        vec3 N = normalize((ModelView.invert_transpose() * model.normal(uv)).xyz());
+        vec3 L = normalize(lightDir.xyz());
 
         vec4 fragPos =
-            varying_pos[0] * bar[0] +
-            varying_pos[1] * bar[1] +
-            varying_pos[2] * bar[2];
+            varying_norm[0]*bar[0] +
+            varying_norm[1]*bar[1] +
+            varying_norm[2]*bar[2];
 
-        vec4 viewDir = normalize(-1.0 * fragPos);
+        vec3 V = normalize((-1.0 * fragPos).xyz());
+        vec3 R = normalize(2.0 * dot(N, L) * N - L);
+
+        double diffuse = std::max(0.0, dot(N, L));
 
         double specMap = model.specular(uv);
-        double shininess = 35;
+        double shininess = 35.0;
+        double specular = specMap * std::pow(std::max(dot(R, V), 0.0), shininess);
 
-        specular = specMap * std::pow(
-            std::max(dot(reflection, viewDir), 0.0),
-            shininess
-        );
+        double glow = model.glow(uv);
+        double ambient = 0.4;
+        double lighting = ambient + 0.4 * diffuse + 0.9 * specular;
 
-        for (int channel : {0, 1, 2})   
-            gl_FragColor[channel] *= std::min(1.0, ambient + 0.4*diffuse + 0.9*specular);
+        TGAColor gl_FragColor = model.diffuse(uv);
+
+        for (int c : {0,1,2}) {
+            double col = gl_FragColor[c] * lighting;
+            col += glow * 255.0;
+            gl_FragColor[c] = std::min(255, int(col));
+        }
 
         return {false, gl_FragColor};                      //final color to write to framebuffer
     }

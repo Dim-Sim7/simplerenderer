@@ -14,6 +14,8 @@ class Model {
 
     TGAImage normalmap = {};       // normal map texture
     TGAImage specularmap = {};
+    TGAImage glowmap = {};          
+    TGAImage diffusemap = {};       // colour map
 public:
     Model(const std::string& filename);
     int nverts() const; // number of vertices
@@ -24,5 +26,7 @@ public:
     vec4 normal(const int iface, const int nthvert) const;
     vec4 normal(const vec2& uv) const;
     double specular(const vec2& uv) const;
+    double glow(const vec2& uv) const;
+    TGAColor diffuse(const vec2& uv) const;
     vec2 uv(const int iface, const int nthvert) const;
 };

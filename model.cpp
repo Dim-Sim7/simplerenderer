@@ -100,8 +100,10 @@ Model::Model(const std::string& filename) {
         std::string texfile = filename.substr(0,dot) + suffix;
         std::cerr << "texture file " << texfile << " loading " << (img.read_tga_file(texfile.c_str()) ? "ok" : "failed") << std::endl;
     };
-    load_texture("_nm.tga", normalmap);
+    load_texture("_nm_tangent.tga", normalmap);
     load_texture("_spec.tga", specularmap);
+    load_texture("_glow.tga", glowmap);
+    load_texture("_diffuse.tga", diffusemap);
 }
 
 int Model::nverts() const {
@@ -138,13 +140,8 @@ vec4 Model::normal(const vec2& uv) const {
     );
 
     TGAColor c = normalmap.get(x, y);
-
-    vec4 n = {
-        c[2] / 255.0 * 2.0 - 1.0,
-        c[1] / 255.0 * 2.0 - 1.0,
-        c[0] / 255.0 * 2.0 - 1.0,
-        0.0
-    };
+ 
+    vec4 n = vec4{(double)c[2],(double)c[1],(double)c[0],0} * 2.0 / 255.0 - vec4{1,1,1,0};
 
     return normalize(n);
 }
@@ -161,14 +158,29 @@ double Model::specular(const vec2& uv) const {
     );
 
     TGAColor c = specularmap.get(x, y);
-    vec4 n = {
-    c[2] / 255.0 * 2.0 - 1.0,
-    c[1] / 255.0 * 2.0 - 1.0,
-    c[0] / 255.0 * 2.0 - 1.0,
-    0.0
-    };
 
-    return length(n);
+    return c[0] / 255.0;
+}
+
+double Model::glow(const vec2& uv) const {
+    int x = uv.x * glowmap.width();
+    int y = (1 - uv.y) * glowmap.height();
+    return glowmap.get(x, y)[0] / 255.0; // usually grayscale
+}
+
+
+TGAColor Model::diffuse(const vec2& uv) const {
+    int x = std::min(
+        diffusemap.width() - 1,
+        std::max(0, int(uv.x * diffusemap.width()))
+    );
+
+    int y = std::min(
+        diffusemap.height() - 1,
+        std::max(0, int(uv.y * diffusemap.height()))
+    );
+
+    return diffusemap.get(x, y);
 }
 
 vec2 Model::uv(const int iface, const int nthvert) const {
