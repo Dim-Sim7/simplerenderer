@@ -11,7 +11,7 @@ struct PhongReflectionShader : IShader {
     const Model &model;
     vec4 lightDir;                      //light direction in eye coords
 
-    vec2 varying_uv[3];        //vn -- normal per vertex to be interp by frag shader
+    vec2 varying_uv[3];        // triangle uv coordinates, written by the vertex shader, read by the fragment shader
     vec4 varying_norm[3];      // normal per vertex to be interpolated by the fragment shader    
     vec4 tri[3];               // triangle in view coordinates
 
@@ -29,55 +29,94 @@ struct PhongReflectionShader : IShader {
     }
 
     // bar = barycentric coords of current pixel within triangle, normally used to interpolate vertex attributes
-    virtual std::pair<bool, TGAColor> fragment(const vec3 bar) const {
-        //TGAColor gl_FragColor = { 255, 255, 255, 255 };     // output color of the fragment
-                                       //constant fill light
-        vec2 uv = varying_uv[0]*bar[0] + varying_uv[1]*bar[1] + varying_uv[2]*bar[2];
+virtual std::pair<bool, TGAColor> fragment(const vec3 bar) const {
 
-        vec3 N = normalize((ModelView.invert_transpose() * model.normal(uv)).xyz());
-        vec3 L = normalize(lightDir.xyz());
+    // --- Interpolate UVs ---
+    vec2 uv =
+        varying_uv[0]*bar[0] +
+        varying_uv[1]*bar[1] +
+        varying_uv[2]*bar[2];
 
-        vec4 fragPos =
-            varying_norm[0]*bar[0] +
-            varying_norm[1]*bar[1] +
-            varying_norm[2]*bar[2];
+    // --- Interpolate geometric normal ---
+    vec4 N_geom = normalize(
+        varying_norm[0]*bar[0] +
+        varying_norm[1]*bar[1] +
+        varying_norm[2]*bar[2]
+    );
 
-        vec3 V = normalize((-1.0 * fragPos).xyz());
-        vec3 R = normalize(2.0 * dot(N, L) * N - L);
+    vec4 N; // final normal used for lighting
 
-        double diffuse = std::max(0.0, dot(N, L));
+    // --- Tangent-space construction ---
+    mat2_4 E = { tri[1] - tri[0], tri[2] - tri[0] };
+    mat2   U = { varying_uv[1] - varying_uv[0],
+                 varying_uv[2] - varying_uv[0] };
 
-        double specMap = model.specular(uv);
-        double shininess = 35.0;
-        double specular = specMap * std::pow(std::max(dot(R, V), 0.0), shininess);
+    if (std::abs(U.det()) > 1e-8) {
+        // Valid UV mapping → normal mapping enabled
+        mat2_4 T = U.invert() * E;
 
-        double glow = model.glow(uv);
-        double ambient = 0.4;
-        double lighting = ambient + 0.4 * diffuse + 0.9 * specular;
+        mat4 D = {
+            normalize(T[0]),   // tangent
+            normalize(T[1]),   // bitangent
+            N_geom,             // normal
+            {0,0,0,1}
+        };
 
-        TGAColor gl_FragColor = model.diffuse(uv);
-
-        for (int c : {0,1,2}) {
-            double col = gl_FragColor[c] * lighting;
-            col += glow * 255.0;
-            gl_FragColor[c] = std::min(255, int(col));
-        }
-
-        return {false, gl_FragColor};                      //final color to write to framebuffer
+        // Tangent-space normal → view space
+        N = normalize(D.transpose() * model.normal(uv));
+    } else {
+        // Degenerate UVs → fallback
+        N = N_geom;
     }
+
+    // --- Lighting vectors ---
+    vec4 l = normalize(lightDir);
+    vec4 r = normalize(N * (2.0 * dot(N, l)) - l);
+
+    // --- Phong lighting ---
+    double ambient  = 0.4;
+    double diffuse  = std::max(0.0, dot(N, l));
+
+    double shininess = 35.0;
+    double specular =
+        (1.0 * sample2D(model.specular(), uv)[0] / 255.0) *
+        std::pow(std::max(r.z, 0.0), shininess);
+
+    double lighting = ambient + diffuse + 0.9*specular;
+    lighting = std::min(1.0, lighting);
+
+    // --- Glow textures ---
+    vec3 emissive = { 0.0, 0.0, 0.0 };
+    TGAColor glow = sample2D(model.glow(), uv);
+    emissive = {
+    glow[0] / 255.0,
+    glow[1] / 255.0,
+    glow[2] / 255.0
+    };
+
+    // --- Texture fetch ---
+    TGAColor gl_FragColor = sample2D(model.diffuse(), uv);
+
+    for (int c : {0,1,2}) {
+        gl_FragColor[c] = std::min<int>(255, gl_FragColor[c] * lighting + emissive[c]);
+    }
+
+    return { false, gl_FragColor };
+}
+
 };
 
 
 int main(int argc, char** argv) {
 
-    if (argc != 2) {
+    if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " model.obj" << std::endl;
         return 1;
     }
     constexpr int width  = 1000;
     constexpr int height = 1000;
 
-    constexpr vec3    eye{-1,0,2}; // camera position
+    constexpr vec3    eye{-0.5,0,2}; // camera position
     constexpr vec3 center{0,0,0};  // camera direction
     constexpr vec3     up{0,1,0};  // camera up vector
 
@@ -86,11 +125,13 @@ int main(int argc, char** argv) {
     init_perspective(length(eye-center));                        // build the Perspective matrix
     init_viewport(width/16, height/16, width*7/8, height*7/8);   // build the Viewport    matrix
     init_zbuffer(width, height); 
-
-    
-    
-
     TGAImage framebuffer(width, height, TGAImage::RGB);
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            framebuffer.set(x, y, TGAColor{0, 0, 0});
+        }
+    }
 
     for (int m = 1; m < argc; m++) {                //iterate through all inputs
         Model model(argv[m]);                       // load data into vertices and faces
@@ -100,7 +141,9 @@ int main(int argc, char** argv) {
                               shader.vertex(f, 1),
                               shader.vertex(f, 2) };
             rasterize(clip, shader, framebuffer);  //rasterize the primitive
+            
         }
+
     }
     
 

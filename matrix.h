@@ -3,7 +3,7 @@
 #include <cassert>
 #include <algorithm>
 #include "vector.h"
-
+#include <iostream>
 template<int rows, int cols>
 struct mat {
     static_assert(rows > 0 && cols > 0);
@@ -73,7 +73,8 @@ struct mat {
         double d = this->minor(row, col).det();
         return ((row + col) & 1) ? -d : d; //“Is the least significant bit of (row + col) equal to 1?”
     }
-
+    
+    // normal matrix = inverse-transpose of model matrix
     mat<rows, cols> invert_transpose() const { //normal matrix
         static_assert(rows == cols, "invert_transpose() requires a square matrix");
         double d = det();
@@ -92,6 +93,19 @@ struct mat {
             for (int j = 0; j < cols; ++j)
                 t[j][i] = rows_data[i][j];
         return t;
+    }
+
+    constexpr mat<rows, cols> invert() const {
+        static_assert(rows == cols, "invert() requires a square matrix");
+
+        double d = det();
+        assert(std::abs(d) > 1e-8);
+
+        mat<rows, cols> r{};
+        for (int i = 0 ; i < rows; ++i)
+            for (int j = 0; j < cols; ++j)
+                r[i][j] = cofactor(j, i) / d;
+        return r;
     }
 
 };
@@ -124,19 +138,6 @@ constexpr mat<R, C> operator*(const mat<R, K>& A, const mat<K, C>& B) {
     return Rm;
 }
 
-template<int R, int C, int K>
-mat<R, C> operator/(const mat<R, K>& A, const mat<K, C>& B) {
-    mat<R, C> Rm{};
-    for (int i = 0; i < R; ++i)
-        for (int j = 0; j < C; ++j)
-            for (int k = 0; k < K; ++k) {
-                assert(B[k][j] != 0);
-                Rm[i][j] += A[i][k] / B[k][j];
-            }
-    return Rm;
-}
-
-
 //MATRIX WITH VECTOR
 
 template<int R, int C>
@@ -157,25 +158,3 @@ constexpr vec<C> operator*(const vec<R>& v, const mat<R, C>& M) {
     return result;
 }
 
-template<int R, int C>
-vec<R> operator/(const mat<R, C>& M, const vec<C>& v) {
-    vec<R> result{};
-    for (int i = 0; i < R; ++i) {
-        for (int j = 0; j < C; ++j) {
-            assert(v[j] != 0);
-            result[i] += M[i][j] / v[j];
-        }
-    }
-    return result;
-}
-
-template<int R, int C>
-vec<R> operator/(const vec<C>& v, const mat<R, C>& M) {
-    vec<R> result{};
-    for (int i = 0; i < R; ++i)
-        for (int j = 0; j < C; ++j) {
-            assert(v[j] != 0);
-            result[i] += M[i][j] / v[j];
-        }
-    return result;
-}

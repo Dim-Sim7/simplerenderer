@@ -29,4 +29,8 @@ public:
     double glow(const vec2& uv) const;
     TGAColor diffuse(const vec2& uv) const;
     vec2 uv(const int iface, const int nthvert) const;
+
+    const TGAImage& diffuse() const;
+    const TGAImage& specular() const;
+    const TGAImage& glow() const;
 };

@@ -188,3 +188,14 @@ vec2 Model::uv(const int iface, const int nthvert) const {
     assert(ti >= 0 && ti < tex.size());
     return tex[ti];
 }
+
+
+const TGAImage& Model::diffuse() const {
+    return diffusemap;
+}
+const TGAImage& Model::specular() const {
+    return specularmap;
+}
+const TGAImage& Model::glow() const {
+    return glowmap;
+}

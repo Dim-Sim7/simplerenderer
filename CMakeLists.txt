@@ -5,7 +5,7 @@ if(NOT is_multi_config AND NOT (CMAKE_BUILD_TYPE OR DEFINED ENV{CMAKE_BUILD_TYPE
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Release default")
 endif()
 
-project(tinyrenderer LANGUAGES CXX)
+project(smallrenderer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -21,7 +21,7 @@ endif()
 
 find_package(OpenMP COMPONENTS CXX)
 
-set(SOURCES main.cpp model.cpp tgaimage.cpp)
+set(SOURCES main.cpp model.cpp tgaimage.cpp graphics_library.cpp)
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
