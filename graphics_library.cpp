@@ -1,16 +1,19 @@
 #include <algorithm>
 #include "graphics_library.h"
+#include "./shaders/shader.h"
 #include <iostream>
 #include <limits>
 
 mat4 ModelView, Viewport, Perspective;   // OpenGL style state matrices
 std::vector<double> zbuffer;
-
+std::vector<vec3> normalBuffer;
+//rotate and translate the world so the camera is at the origin and looks down z"
 void lookat(const vec3 eye, const vec3 center, const vec3 up) {
     vec3 z = normalize(eye - center);      // camera forward
     vec3 x = normalize(cross(up, z));      // camera right
     vec3 y = cross(z, x);                  // camera up
 
+    //express world coords in camera axes
     mat4 R = {{
         { x.x, x.y, x.z, 0 },
         { y.x, y.y, y.z, 0 },
@@ -18,6 +21,7 @@ void lookat(const vec3 eye, const vec3 center, const vec3 up) {
         { 0,   0,   0,   1 }
     }};
 
+    //translate the world so that center move to origin
     mat4 T = {{
         { 1, 0, 0, -center.x },
         { 0, 1, 0, -center.y },
@@ -25,6 +29,7 @@ void lookat(const vec3 eye, const vec3 center, const vec3 up) {
         { 0, 0, 0, 1 }
     }};
 
+    //translate then rotate world
     ModelView = R * T;
 }
 
@@ -34,14 +39,17 @@ void init_perspective(const double f) {
 }
 
 void init_viewport(const int x, const int y, const int w, const int h) {
-    Viewport = {{{w/2., 0, 0, x+w/2.}, {0, h/2., 0, y+h/2.}, {0,0,1,0}, {0,0,0,1}}};
+    Viewport = {{{w/2.0, 0, 0, x+w/2.0}, {0, h/2., 0, y+h/2.0}, {0,0,1,0}, {0,0,0,1}}};
 }
 
 void init_zbuffer(const int width, const int height) {
     zbuffer = std::vector(width * height, -std::numeric_limits<double>::infinity());
-
-
 }
+
+void init_normalBuffer(const int width, const int height) {
+    normalBuffer = std::vector<vec3>(width * height, vec3{0.0, 0.0, 1.0});
+}
+
 
 void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffer) {
     vec4 ndc[3]    = { clip[0]/clip[0].w, clip[1]/clip[1].w, clip[2]/clip[2].w };                // normalized device coordinates    
@@ -71,14 +79,20 @@ void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffe
             double z = dot(bc_screen, vec3{ ndc[0].z, ndc[1].z, ndc[2].z });                          // linear interpolation of the depth using bc_screen (after projection is applied)
             
             if (z <= zbuffer[x + y * framebuffer.width()]) continue;                                  // discard fragments that are too deep w.r.t the z-buffer
-            
-            auto [discard, color] = shader.fragment(bc_clip);                                         // shader.fragment uses bc_clip because shading happens on the triangle surface, not on the screen projection.
-            if (discard) continue;                                                                    // fragment shader can discard current fragment
-            zbuffer[x + y * framebuffer.width()] = z;
-            
-            framebuffer.set(x, y, color);
+            Fragment frag = shader.fragment(bc_clip);                                    // shader.fragment uses bc_clip because shading happens on the triangle surface, not on the screen projection.
+            if (frag.discard) continue;                                                                    // fragment shader can discard current fragment
+            zbuffer[x + y * framebuffer.width()] = z;         
+            framebuffer.set(x, y, frag.color);
+            normalBuffer[x + y * framebuffer.width()] = normalize(frag.normal);
         }
     }
 
 }
 
+void clear_framebuffer(TGAImage& img, const TGAColor& color) {
+    for (int x = 0; x < img.width(); ++x) {
+        for (int y = 0; y < img.height(); ++y) {
+            img.set(x, y, color);
+        }
+    }
+}

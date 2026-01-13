@@ -1,13 +1,7 @@
-shadow mapping
-
-use zbuffer twice
-
-f = i, j, z, 1  ---- camera screen space coord
-
-NM^-1 f= wi', wj', wz', w -------- coord of fragment from light perspective
-
-compare the fragments z' depth stored in the shadow map at coords i', j'
+AMBIENT OCCLUSION
 
 
-If the fragment’s depth matches the stored depth, the fragment is visible to the light and should be lit.
-If the fragment’s depth is greater, it means another surface was closer to the light, and the fragment lies in shadow.
+
+for each fragment,, consider the hemisphere oriented around the surface normal
+
+generate sample points within this hemisphere

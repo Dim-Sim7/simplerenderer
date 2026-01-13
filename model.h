@@ -1,3 +1,5 @@
+
+#pragma once
 #include <vector>
 #include "geometry.h"
 #include "tgaimage.h"
@@ -25,6 +27,8 @@ public:
     
     vec4 normal(const int iface, const int nthvert) const;
     vec4 normal(const vec2& uv) const;
+    const TGAImage& normal() const;
+    
     double specular(const vec2& uv) const;
     double glow(const vec2& uv) const;
     TGAColor diffuse(const vec2& uv) const;
@@ -33,4 +37,5 @@ public:
     const TGAImage& diffuse() const;
     const TGAImage& specular() const;
     const TGAImage& glow() const;
+
 };

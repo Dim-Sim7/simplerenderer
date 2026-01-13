@@ -92,7 +92,7 @@ Model::Model(const std::string& filename) {
         
     }
 
-    std::cout << "# v# " << nverts() << " f# " << nfaces() << "\n";
+    //std::cout << "# v# " << nverts() << " f# " << nfaces() << "\n";
 
     auto load_texture = [&filename](const std::string suffix, TGAImage &img) {
         size_t dot = filename.find_last_of(".");
@@ -144,6 +144,10 @@ vec4 Model::normal(const vec2& uv) const {
     vec4 n = vec4{(double)c[2],(double)c[1],(double)c[0],0} * 2.0 / 255.0 - vec4{1,1,1,0};
 
     return normalize(n);
+}
+
+const TGAImage& Model::normal() const{
+    return normalmap;
 }
 
 double Model::specular(const vec2& uv) const {

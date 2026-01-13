@@ -209,6 +209,6 @@ int main() {
 
     test_affine_2d_transform();
 
-    std::cout << "All geometry tests passed ✅\n";
+    std::cout << "All geometry tests passed \n";
     return 0;
 }

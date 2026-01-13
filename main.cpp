@@ -2,176 +2,225 @@
 #include <iostream>
 #include "graphics_library.h"
 #include "model.h"
+#include <random>
+#include <algorithm>
+#include <cmath>
+#include <numbers>
+#include <omp.h>
+#include <memory>
+//Shaders
+#include "./shaders/shader.h"
+#include "./shaders/toon_shader.h"
+#include "./shaders/grayscale_shader.h"
+#include "./shaders/tangent_texture_shader.h"
 
 extern mat4 ModelView, Viewport, Perspective;     // "OpenGL" state matrices and
-extern std::vector<double> zbuffer;     // the depth buffer
-constexpr vec3 sunRayDirection {-1, 1, 1};
+extern std::vector<vec3> normalBuffer;
+extern std::vector<double> zbuffer;
 
-struct BlankShader : IShader {
-    const Model& model;
-
-    BlankShader(const Model& m) : model(m) {}
-
-    virtual vec4 vertex(const int face, const int vert) {
-        vec4 gl_Position = ModelView * model.vert(face, vert);
-        return Perspective * gl_Position;
-    }
-
-    virtual std::pair<bool,TGAColor> fragment(const vec3 bar) const {
-        return {false, {255, 255, 255, 255}};
-    }
+struct RenderState {
+    int width;
+    int height;
+    TGAImage framebuffer;
+    ShaderType current_shader;
+    vec3 light_dir;
 };
 
-struct PhongReflectionShader : IShader {
-    const Model &model;
-    vec4 lightDir;                      //light direction in eye coords
 
-    vec2 varying_uv[3];        // triangle uv coordinates, written by the vertex shader, read by the fragment shader
-    vec4 varying_norm[3];      // normal per vertex to be interpolated by the fragment shader    
-    vec4 tri[3];               // triangle in view coordinates
+constexpr double golden_angle = 2.399963229728653; // radians
 
-    PhongReflectionShader(const Model &m) : model(m) {
-        lightDir = normalize((ModelView * vec4{sunRayDirection.x, sunRayDirection.y, sunRayDirection.z, 0.0})); // transform the light vector to view coordinates
+const char* shaderTypeToString(ShaderType type) {
+    switch (type) {
+        case ShaderType::TOON:        return "toon";
+        case ShaderType::GRAY:        return "gray";
+        case ShaderType::TEXTURE:     return "tangent";
+        default:                      return "unknown";
     }
+}
 
-    //this method is called per triangle vertex (3 times for 1 face)
-    virtual vec4 vertex(const int face, const int vert) {
-        varying_uv[vert] = model.uv(face, vert);
-        varying_norm[vert] = ModelView.invert_transpose() * model.normal(face, vert);
-        vec4 gl_Position = ModelView * model.vert(face, vert);
-        tri[vert] = gl_Position;
-        return Perspective * gl_Position;                           // transforms to clip space (final value to project vertex onto screen)
-    }
+vec2 sample_disk(int i, int N) {
+    double r = std::sqrt((i + 0.5) / N);
+    double theta = i * golden_angle;
+    return vec2{
+        r * std::cos(theta),
+        r * std::sin(theta)
+    };
 
-    // bar = barycentric coords of current pixel within triangle, normally used to interpolate vertex attributes
-    virtual std::pair<bool, TGAColor> fragment(const vec3 bar) const {
+}
 
-        // --- Interpolate UVs ---
-        vec2 uv =
-            varying_uv[0]*bar[0] +
-            varying_uv[1]*bar[1] +
-            varying_uv[2]*bar[2];
+void ambient_occlusion_pass(RenderState& state) {
+    constexpr double AO_RADIUS = 0.6;
+    constexpr int AO_SAMPLES = 128;
+    constexpr double AO_BIAS = 0.02;
 
-        // --- Interpolate geometric normal ---
-        vec4 N_geom = normalize(
-            varying_norm[0]*bar[0] +
-            varying_norm[1]*bar[1] +
-            varying_norm[2]*bar[2]
-        );
+    mat4 inv = (Viewport * Perspective * ModelView).invert();
 
-        vec4 N; // final normal used for lighting
+#pragma omp parallel for
+    for (int x = 0; x < state.width; ++x) {
+        for (int y = 0; y < state.height; ++y) {
+            double depth = zbuffer[x + y * state.width];
+            if (depth < -100) continue;
 
-        // --- Tangent-space construction ---
-        mat2_4 E = { tri[1] - tri[0], tri[2] - tri[0] };
-        mat2   U = { varying_uv[1] - varying_uv[0],
-                    varying_uv[2] - varying_uv[0] };
-
-        if (std::abs(U.det()) > 1e-8) {
-            // Valid UV mapping → normal mapping enabled
-            mat2_4 T = U.invert() * E;
-
-            mat4 D = {
-                normalize(T[0]),   // tangent
-                normalize(T[1]),   // bitangent
-                N_geom,             // normal
-                {0,0,0,1}
+            vec4 viewPixel = inv * vec4{
+                static_cast<double>(x),
+                static_cast<double>(y),
+                depth,
+                1.0
             };
+            vec3 P = (viewPixel / viewPixel.w).xyz();
 
-            // Tangent-space normal → view space
-            N = normalize(D.transpose() * model.normal(uv));
-        } else {
-            // Degenerate UVs → fallback
-            N = N_geom;
-        }
+            vec3 N = normalize(normalBuffer[x + y * state.width]);
 
-        // --- Lighting vectors ---
-        vec4 l = normalize(lightDir);
-        vec4 r = normalize(N * (2.0 * dot(N, l)) - l);
+            vec3 up = std::abs(N.z) < 0.999 ? vec3{0,0,1} : vec3{0,1,0};
+            vec3 T = normalize(cross(up, N));
+            vec3 B = cross(N, T);
 
-        // --- Phong lighting ---
-        double ambient  = 0.04;
-        double diffuse  = std::max(0.0, dot(N, l));
+            double occlusion = 0.0;
 
-        double shininess = 35.0;
-        double specular =
-            (1.0 * sample2D(model.specular(), uv)[0] / 255.0) *
-            std::pow(std::max(r.z, 0.0), shininess);
+            for (int i = 0; i < AO_SAMPLES; ++i) {
+                vec2 d = sample_disk(i, AO_SAMPLES);
+                double h = sqrt(std::max(0.0, 1.0 - d.x*d.x - d.y*d.y));
 
-        double lighting = ambient + diffuse + 0.9*specular;
-        lighting = std::min(1.0, lighting);
+                vec3 dir_tangent = normalize(vec3{ d.x, d.y, h });
+                vec3 dir = normalize(
+                    T * dir_tangent.x +
+                    B * dir_tangent.y +
+                    N * dir_tangent.z
+                );
 
-        // --- Glow textures ---
-        vec3 emissive = { 0.0, 0.0, 0.0 };
-        TGAColor glow = sample2D(model.glow(), uv);
-        emissive = {
-        glow[0] / 255.0,
-        glow[1] / 255.0,
-        glow[2] / 255.0
-        };
+                double radius = AO_RADIUS * std::abs(P.z);
+                vec3 samplePos = P + dir * radius;
 
-        // --- Texture fetch ---
-        TGAColor gl_FragColor = sample2D(model.diffuse(), uv);
+                vec4 clip = (Perspective * ModelView) * vec4{
+                    samplePos.x, samplePos.y, samplePos.z, 1.0
+                };
+                if (clip.w <= 0.0) continue;
 
-        for (int c : {0,1,2}) {
-            gl_FragColor[c] = std::min<int>(255, gl_FragColor[c] * lighting + emissive[c]);
-        }
+                vec3 ndc = clip.xyz() / clip.w;
+                int sx = int((ndc.x * 0.5 + 0.5) * state.width);
+                int sy = int((ndc.y * 0.5 + 0.5) * state.height);
+                if (sx < 0 || sx >= state.width || sy < 0 || sy >= state.height)
+                    continue;
 
-        return { false, gl_FragColor };
-    }
+                double sampleDepth = zbuffer[sx + sy * state.width];
+                if (sampleDepth < -100) continue;
 
-};
+                vec4 sampleView = inv * vec4{
+                    static_cast<double>(sx),
+                    static_cast<double>(sy),
+                    sampleDepth,
+                    1.0
+                };
+                double sceneZ = (sampleView / sampleView.w).z;
 
-void drop_zbuffer(std::string filename,
-                  std::vector<double> &zbuffer,
-                  int width,
-                  int height) {
+                if (sceneZ < samplePos.z - AO_BIAS){
+                    double range = radius;
+                    double dist  = std::abs(sceneZ - samplePos.z);
+                    double weight = 1.0 - std::clamp(dist / range, 0.0, 1.0);
+                    occlusion += weight;
+                }
 
-    // Create a grayscale image to store the depth visualization
-    // Each pixel will represent depth at that screen location
-    TGAImage zimg(width, height, TGAImage::GRAYSCALE, {0,0,0,0});
+            }
+            double ao = 1.0 - occlusion / AO_SAMPLES;
+            //ao = std::pow(std::clamp(ao, 0.0, 1.0), 1.5); // contrast
+            ao = std::clamp(ao, 0.0, 1.0);
+            ao = smoothstep(0.5, 0.95, ao);
+            ao = std::pow(ao, 1.5);
 
-    // Initialize min/max depth values
-    // These will be used to normalize depth into [0,255]
-    double minz = +1000;
-    double maxz = -1000;
-
-    // ---- First pass: find depth range ----
-    for (int x = 0; x < width; ++x) {
-        for (int y = 0; y < height; ++y) {
-
-            // Depth stored in zbuffer (one value per pixel)
-            double z = zbuffer[x + y * width];
-
-            // Ignore pixels that were never written (background)
-            if (z < -100) continue;
-
-            // Track min and max depth values actually used
-            minz = std::min(z, minz);
-            maxz = std::max(z, maxz);
+            //std::cout << ao << '\n';
+            TGAColor c = state.framebuffer.get(x, y);
+            auto mod = [&](int v) {
+                return uint8_t(std::clamp(v * ao, 0.0, 255.0));
+            };
+            
+            state.framebuffer.set(x, y, {
+                mod(c[0]), mod(c[1]), mod(c[2]), 255
+            });
         }
     }
-
-    // ---- Second pass: map depth to grayscale ----
-    for (int x = 0; x < width; ++x) {
-        for (int y = 0; y < height; ++y) {
-
-            double z = zbuffer[x + y * width];
-            if (z < -100) continue;
-
-            // Normalize depth into [0,1], then scale to [0,255]
-            // This makes the nearest pixel white and farthest black
-            z = (z - minz) / (maxz - minz) * 255;
-
-            // Write grayscale value into the image
-            zimg.set(x, y, { z, 255, 255, 255 });
-        }
-    }
-
-    // Save depth visualization to disk
-    zimg.write_tga_file(filename);
 }
 
 
+void sobel_pass(RenderState& state) {
+    //sobel edge-detection
+    constexpr double threshold = 0.15;
+    constexpr int Gx[3][3] = { {-1,  0,  1}, {-2, 0, 2}, {-1, 0, 1} };
+    constexpr int Gy[3][3] = { {-1, -2, -1}, { 0, 0, 0}, { 1, 2, 1} };
+
+    for (int y = 1; y < state.height - 1; ++y) {
+        for (int x = 1; x < state.width - 1; ++x) {
+            vec2 sum;
+            for (int j = -1; j <= 1; ++j) {
+                for (int i = -1; i <= 1; ++i) {
+                    sum = sum + vec2{
+                        Gx[j + 1][i + 1] * zbuffer[x + i + (y + j) * state.width],
+                        Gy[j + 1][i + 1] * zbuffer[x + i + (y + j) * state.width]
+                    };
+                }
+            }
+            if (length(sum) > threshold)
+                state.framebuffer.set(x, y, TGAColor{0, 0, 0, 255});
+        }
+    }
+}
+
+void geometry_pass(RenderState& state, Model& model) {
+    std::cout << "ShaderType::COUNT = "
+          << static_cast<int>(ShaderType::COUNT) << std::endl;
+
+    for (int i = 0; i < static_cast<int>(ShaderType::COUNT); ++i) {
+        
+        init_zbuffer(state.width, state.height);
+        init_normalBuffer(state.width, state.height);
+        ShaderType shaderType = static_cast<ShaderType>(i);
+        std::unique_ptr<IShader> shader;
+
+        if (shaderType == ShaderType::TOON) {
+            shader = std::make_unique<ToonShader>(model, state.light_dir, TGAColor{123, 98, 88, 255});
+        }
+            
+        else if (shaderType == ShaderType::GRAY) {
+            shader = std::make_unique<GrayscaleShader>(model, state.light_dir);
+        }
+        else {
+            shader = std::make_unique<TangentTextureShader>(model, state.light_dir);
+        }
+        
+        for (int f = 0; f < model.nfaces(); ++f) {// iterate through all faces
+            Triangle clip = {                     // assemble primitive
+                shader->vertex(f, 0),
+                shader->vertex(f, 1),
+                shader->vertex(f, 2)
+            };
+            rasterize(clip, *shader, state.framebuffer); //rasterise primitive
+
+        }
+        ambient_occlusion_pass(state);
+        sobel_pass(state);
+        std::string filename = std::string("framebuffer_") + shaderTypeToString(shaderType) + ".tga";
+        std::cout << "WRITING TO FILE: " << filename << '\n';
+        state.framebuffer.write_tga_file(filename.c_str());
+        clear_framebuffer(state.framebuffer, {255, 255, 22, 0});
+    }
+}
+
+
+void render_frame(RenderState& state, Model& model) {
+
+    geometry_pass(state, model);
+}
+
+void setup_scene(const int width, const int height) {
+    constexpr vec3 eye    = {-0.5, 0, 2};
+    constexpr vec3 center = {0, 0, 0};
+    constexpr vec3 up     = {0, 1, 0};
+
+
+    lookat(eye, center, up);
+    init_perspective(length(eye - center));
+    init_viewport(0, 0, width, height);
+
+}
 
 int main(int argc, char** argv) {
 
@@ -179,153 +228,26 @@ int main(int argc, char** argv) {
         std::cerr << "Usage: " << argv[0] << " model.obj\n";
         return 1;
     }
-
+    std::cout << "hihihih\n";
     constexpr int width   = 1000;
     constexpr int height  = 1000;
-    constexpr int shadoww = 8000;
-    constexpr int shadowh = 8000;
+    constexpr vec3 light {-1, 1, 1};
 
-    constexpr vec3 eye    = {-0.5, 0, 2};
-    constexpr vec3 center = {0, 0, 0};
-    constexpr vec3 up     = {0, 1, 0};
+    setup_scene(width, height);
 
-    vec3 light_dir = normalize(sunRayDirection);
-    vec3 light_pos = center - light_dir * 10.0; // directional light approximation
+    RenderState state {
+        .width = width,
+        .height = height,
+        .framebuffer = TGAImage(width, height, TGAImage::RGB),
+        .current_shader = ShaderType::GRAY,
+        .light_dir = normalize(light)
+    };
 
-    /* =========================
-       CAMERA PASS
-       ========================= */
-
-    lookat(eye, center, up);
-    init_perspective(length(eye - center));
-    init_viewport(0, 0, width, height);
-    init_zbuffer(width, height);
-
-    TGAImage framebuffer(width, height, TGAImage::RGB, {0,0,0,255});
-
-    for (int m = 1; m < argc; m++) {
+    for (int m=1; m<argc; m++) {
         Model model(argv[m]);
-        PhongReflectionShader shader(model);
-
-        for (int f = 0; f < model.nfaces(); f++) {
-            Triangle clip = {
-                shader.vertex(f, 0),
-                shader.vertex(f, 1),
-                shader.vertex(f, 2)
-            };
-            rasterize(clip, shader, framebuffer);
-        }
+        render_frame(state, model);
     }
-
-    framebuffer.write_tga_file("framebuffer.tga");
-
-    // Save camera depth buffer
-    std::vector<double> zbuffer_camera = zbuffer;
-    drop_zbuffer("zbuffer_camera.tga", zbuffer_camera, width, height);
-
-    // Camera inverse for reconstruction
-    mat4 CamInv = (Viewport * Perspective * ModelView).invert();
-
-    /* =========================
-       SHADOW MAP PASS
-       ========================= */
-
-    lookat(light_pos, center, up);
-
-    // NOTE: directional light → orthographic would be ideal
-    init_perspective(10.0); // acts as a depth range limiter
-    init_viewport(0, 0, shadoww, shadowh);
-    init_zbuffer(shadoww, shadowh);
-
-    TGAImage shadow_fb(shadoww, shadowh, TGAImage::RGB, {0,0,0,255});
-
-    for (int m = 1; m < argc; m++) {
-        Model model(argv[m]);
-        BlankShader shader(model);
-
-        for (int f = 0; f < model.nfaces(); f++) {
-            Triangle clip = {
-                shader.vertex(f, 0),
-                shader.vertex(f, 1),
-                shader.vertex(f, 2)
-            };
-            rasterize(clip, shader, shadow_fb);
-        }
-    }
-
-    shadow_fb.write_tga_file("shadowmap.tga");
-
-    std::vector<double> zbuffer_shadow = zbuffer;
-    drop_zbuffer("zbuffer_shadow.tga", zbuffer_shadow, shadoww, shadowh);
-
-    // Light-space transform
-    mat4 LightMVP = Viewport * Perspective * ModelView;
-
-    /* =========================
-       SHADOW RESOLVE PASS
-       ========================= */
-
-    std::vector<bool> lit_mask(width * height, true);
-
-    for (int x = 0; x < width; x++) {
-        for (int y = 0; y < height; y++) {
-
-            double z = zbuffer_camera[x + y * width];
-            if (z < -100) {
-                lit_mask[x + y * width] = true;
-                continue;
-            }
-
-            // Screen → world
-            vec4 world = CamInv * vec4{x, y, z, 1.0};
-
-            // World → light screen
-            vec4 light_clip = LightMVP * world;
-            vec3 light_ndc  = light_clip.xyz() / light_clip.w;
-
-            bool lit =
-                light_ndc.x < 0 || light_ndc.x >= shadoww ||
-                light_ndc.y < 0 || light_ndc.y >= shadowh ||
-                light_ndc.z >
-                    zbuffer_shadow[int(light_ndc.x) + int(light_ndc.y) * shadoww] - 0.02;
-
-            lit_mask[x + y * width] = lit;
-        }
-    }
-
-    /* =========================
-       DEBUG: SHADOW MASK
-       ========================= */
-
-    TGAImage maskimg(width, height, TGAImage::GRAYSCALE, {0,0,0,255});
-    for (int x = 0; x < width; x++) {
-        for (int y = 0; y < height; y++) {
-            if (!lit_mask[x + y * width])
-                maskimg.set(x, y, {255,255,255,255});
-        }
-    }
-    maskimg.write_tga_file("mask.tga");
-
-    /* =========================
-       APPLY SHADOWS
-       ========================= */
-
-    for (int x = 0; x < width; x++) {
-        for (int y = 0; y < height; y++) {
-
-            if (lit_mask[x + y * width]) continue;
-
-            TGAColor c = framebuffer.get(x, y);
-            vec3 col = {c[0], c[1], c[2]};
-
-            if (length(col) < 80) continue;
-
-            col = normalize(col) * 80;
-            framebuffer.set(x, y, {col[0], col[1], col[2], 255});
-        }
-    }
-
-    framebuffer.write_tga_file("shadow.tga");
-
+    
     return 0;
+    
 }
