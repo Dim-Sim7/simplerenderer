@@ -184,7 +184,7 @@ void render_model(const Model& model, RenderState& state, int width, int height)
     }
     staging.buffer = state.staging_buffer;
     staging.capacity = state.staging_capacity;
-
+    vec3 light_camera = (ModelView * vec4{state.light_dir.x, state.light_dir.y, state.light_dir.z, 0.0f}).xyz();
     // Process triangles
     init_triangles(model, state.cpu_tris);
     state.gpu_tris = state.gpu_tris_buffer;
@@ -207,7 +207,7 @@ void render_model(const Model& model, RenderState& state, int width, int height)
         // Upload to GPU
         cudaStream_t uploadStream;
         cudaStreamCreate(&uploadStream);
-        vec3 light_camera = (ModelView * vec4{state.light_dir.x, state.light_dir.y, state.light_dir.z, 0.0f}).xyz();
+        
         GPUMaterial h_mat = uploadMaterial(model, light_camera, staging, uploadStream);
         GPUMaterial* d_mat;
         cudaMalloc(&d_mat, sizeof(GPUMaterial));
