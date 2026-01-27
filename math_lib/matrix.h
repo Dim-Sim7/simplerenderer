@@ -51,7 +51,7 @@ struct mat {
         return r;
     }
 
-    double det() const {
+    float det() const {
         static_assert(rows == cols, "determinant requires square matrix");
 
         if constexpr (rows == 1) {
@@ -63,21 +63,21 @@ struct mat {
                 rows_data[0][1] * rows_data[1][0];
         }
         else {
-            double d = 0.0;
+            float d = 0.0;
             for (int c = 0; c < cols; ++c)
                 d += rows_data[0][c] * cofactor(0, c);
             return d;
         }
     }
-    double cofactor(int row, int col) const {
-        double d = this->minor(row, col).det();
+    float cofactor(int row, int col) const {
+        float d = this->minor(row, col).det();
         return ((row + col) & 1) ? -d : d; //“Is the least significant bit of (row + col) equal to 1?”
     }
     
     // normal matrix = inverse-transpose of model matrix
     mat<rows, cols> invert_transpose() const { //normal matrix
         static_assert(rows == cols, "invert_transpose() requires a square matrix");
-        double d = det();
+        float d = det();
         assert(std::abs(d) > 1e-8);
         
         mat<rows, cols> r{};
@@ -98,7 +98,7 @@ struct mat {
     constexpr mat<rows, cols> invert() const {
         static_assert(rows == cols, "invert() requires a square matrix");
 
-        double d = det();
+        float d = det();
         assert(std::abs(d) > 1e-8);
 
         mat<rows, cols> r{};

@@ -8,14 +8,14 @@
 
 template <int n>
 struct vec {
-    double data[n] = {0};
+    float data[n] = {0};
 
-    constexpr double& operator[](const int i) {
+    constexpr float& operator[](const int i) {
         assert(i >= 0 && i < n);
         return data[i];
     }
 
-    constexpr const double& operator[](const int i) const {
+    constexpr const float& operator[](const int i) const {
         assert(i >= 0 && i < n);
         return data[i];
     }
@@ -26,16 +26,16 @@ struct vec {
 template<>
 struct vec<2> {
     union {
-        struct { double x, y; };
-        double  data[2]{};
+        struct { float x, y; };
+        float  data[2]{};
     };
 
-    constexpr double& operator[](int i) {
+    constexpr float& operator[](int i) {
         assert(i >= 0 && i < 2);
         return data[i];
     }
 
-    constexpr const double& operator[](int i) const {
+    constexpr const float& operator[](int i) const {
         assert(i >= 0 && i < 2);
         return data[i];
     }
@@ -44,16 +44,16 @@ struct vec<2> {
 template<>
 struct vec<3> {
     union {
-        struct { double x, y, z; };
-        double data[3];
+        struct { float x, y, z; };
+        float data[3];
     };
 
-    constexpr double& operator[](int i) {
+    constexpr float& operator[](int i) {
         assert(i >= 0 && i < 3);
         return data[i];
     }
 
-    constexpr const double& operator[](int i) const {
+    constexpr const float& operator[](int i) const {
         assert(i >= 0 && i < 3);
         return data[i];
     }
@@ -66,16 +66,16 @@ struct vec<3> {
 template<>
 struct vec<4> {
     union {
-        struct { double x, y, z, w; };
-        double data[4];
+        struct { float x, y, z, w; };
+        float data[4];
     };
 
-    constexpr double& operator[](int i) {
+    constexpr float& operator[](int i) {
         assert(i >= 0 && i < 4);
         return data[i];
     }
 
-    constexpr const double& operator[](int i) const {
+    constexpr const float& operator[](int i) const {
         assert(i >= 0 && i < 4);
         return data[i];
     }
@@ -134,7 +134,7 @@ constexpr vec<n> operator/(const vec<n>& a, const vec<n>& b) {
 
 //VECTOR WITH SCALAR
 template<int n> 
-constexpr vec<n> operator+(const vec<n>& a, double s) {
+constexpr vec<n> operator+(const vec<n>& a, float s) {
     vec<n> result;
     for (int i = 0; i < n; ++i) {
         result[i] = a[i] + s;
@@ -143,7 +143,7 @@ constexpr vec<n> operator+(const vec<n>& a, double s) {
 }
 
 template<int n> 
-constexpr vec<n> operator-(const vec<n>& a, double s) {
+constexpr vec<n> operator-(const vec<n>& a, float s) {
     vec<n> result;
     for (int i = 0; i < n; ++i) {
         result[i] = a[i] - s;
@@ -152,7 +152,7 @@ constexpr vec<n> operator-(const vec<n>& a, double s) {
 }
 
 template<int n> 
-constexpr vec<n> operator*(const vec<n>& a, double s) {
+constexpr vec<n> operator*(const vec<n>& a, float s) {
     vec<n> result;
     for (int i = 0; i < n; ++i) {
         result[i] = a[i] * s;
@@ -161,12 +161,12 @@ constexpr vec<n> operator*(const vec<n>& a, double s) {
 }
 
 template<int n>
-constexpr vec<n> operator*(double s, const vec<n>& v) {
+constexpr vec<n> operator*(float s, const vec<n>& v) {
     return v * s;
 }
 
 template<int n> 
-constexpr vec<n> operator/(const vec<n>& a, double s) {
+constexpr vec<n> operator/(const vec<n>& a, float s) {
     assert(s != 0);
     vec<n> result;
     for (int i = 0; i < n; ++i) {
@@ -178,21 +178,21 @@ constexpr vec<n> operator/(const vec<n>& a, double s) {
 // -------- Vector Operations ----------
 
 template<int n>
-constexpr double dot(const vec<n>& a, const vec<n>& b) {
-    double sum = 0.0;
+constexpr float dot(const vec<n>& a, const vec<n>& b) {
+    float sum = 0.0;
     for (int i = 0; i < n; ++i)
         sum += a[i] * b[i];
     return sum;
 }
 
 template<int n>
-double length(const vec<n>& v) {
+float length(const vec<n>& v) {
     return std::sqrt(dot(v, v));
 }
 
 template<int n>
 vec<n> normalize(const vec<n>& v) {
-    double len = length(v);
+    float len = length(v);
     vec<n> result;
     assert(len > 1e-8);
     for (int i = 0; i < n; ++i)

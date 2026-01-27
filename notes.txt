@@ -1,7 +1,46 @@
-AMBIENT OCCLUSION
+TODO::
+
+Upload stuff to device, call the kernel, refactor for real-time running of scene (figure out how to do)
+
+once this is all done, implement point cloud and line rendering
+
+do the same for CPU and then profile the perfomance on each renderer. (far --> close)
+
+explain difference of tile-based GPU rendering to CPU rendering
+
+talk about tradeoffs and design decisions and future improvements
+
+use Nvidia Nsight and another performance measurer
+
+clean up code, clean up repo, add docs 
+
+finish project
 
 
 
-for each fragment,, consider the hemisphere oriented around the surface normal
 
-generate sample points within this hemisphere
+
+
+
+
+
+/////////////WHAT TO DO NEXT/////////
+
+-COMBINE CPU AND GPU RENDERER INTO ONE FILE STRUCUTRE
+
+// FIGURE OUT BEST WAY TO PROFILE
+-PROFILE THIS BUILD WITH EACH TEXTURE SHADING (FIX PAGED MEM COPY FROM DTOH AT END)
+-PROFILE THE CPU BUILD
+
+display perfomance of cpu first with. outline the issues
+
+show how gpu renderer fixed the issues and improved performance
+
+show tradeoffs between the two
+
+make a simple CLI UI. 
+
+1. enter path to obj FILE
+2. render with cpu or gpu
+3. pick your shader
+4. display image and show the performance

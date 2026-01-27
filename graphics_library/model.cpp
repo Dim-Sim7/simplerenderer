@@ -89,6 +89,8 @@ Model::Model(const std::string& filename) {
             }
             faces.push_back(f);
         }
+
+        
         
     }
 

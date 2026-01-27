@@ -1,7 +1,7 @@
 
 #pragma once
 #include <vector>
-#include "geometry.h"
+#include "./math_lib/vector.h"
 #include "tgaimage.h"
 struct Face {
     int v[3];  // vertex indices

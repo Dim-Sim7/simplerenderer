@@ -1,12 +1,22 @@
 #pragma once
 #include <utility>
-#include "tgaimage.h"
-#include "geometry.h"
-#include "model.h"
+#include "../graphics_library/tgaimage.h"
+#include "../graphics_library/model.h"
+#include "../graphics_library/graphics_library.h"
+#include "../graphics_library/gpu_material.h"
+#include <vector_types.h>
 
+enum ShaderType : int {TOON = 0, GRAY = 1, TEXTURE = 2, COUNT = 3};
+enum RenderType : int {POINTCLOUD = 0, LINE = 1};
 
-extern mat4 ModelView, Viewport, Perspective; 
-enum ShaderType {TOON, GRAY, TEXTURE, COUNT};
+inline const char* shaderTypeToString(ShaderType type) {
+    switch (type) {
+        case ShaderType::TOON:        return "toon";
+        case ShaderType::GRAY:        return "gray";
+        case ShaderType::TEXTURE:     return "tangent";
+        default:                      return "unknown";
+    }
+}
 
 struct Fragment {
     bool discard;
@@ -14,12 +24,19 @@ struct Fragment {
     vec3 normal;
 };
 
-class IShader {
-public:
-    static TGAColor sample2D(const TGAImage &img, const vec2 &uvf) {
-        return img.get(uvf[0] * img.width(), uvf[1] * img.height());
-    }
-    virtual vec4 vertex(int face, int vert) = 0;
-    virtual Fragment fragment(const vec3 bar) const = 0;
-    virtual ~IShader() = default;
+struct FragmentInput {
+    float2 uv;
+    float3 normal;   //N
+    float3 tangent;  //T
+    float3 bitangent;//B
+    float3 fragPos;
 };
+
+struct FragmentOutput {
+    uchar4 color; // CUDA RGBA
+};
+
+__device__ uchar4 sample(const Texture2D& tex, const FragmentInput& fin);
+
+__device__ FragmentOutput shade(ShaderType type,
+                    const FragmentInput& in, const GPUMaterial& gpu_m);
