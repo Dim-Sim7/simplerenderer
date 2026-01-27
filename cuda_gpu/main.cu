@@ -201,9 +201,6 @@ void render_model(const Model& model, RenderState& state, int width, int height)
         // Clear framebuffer for this shader
         clear_framebuffer(state.img, TGAColor{255, 255, 22, 0});
 
-        // Clear framebuffer for this shader
-        // clear_framebuffer(state.img, TGAColor{255, 255, 22, 0});
-
         // Upload to GPU
         cudaStream_t uploadStream;
         cudaStreamCreate(&uploadStream);
