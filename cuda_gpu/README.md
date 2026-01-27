@@ -116,41 +116,15 @@ make
 ```
 
 ## Profiling
-
-### CPU Profiling
 ```bash
-# gprof (requires -pg compilation flag)
-gprof ./cpu_renderer gmon.out > cpu_profile.txt
+# Generate profile
+nsys profile --output=profile_output ./renderer model.obj
 
-# perf
-perf record ./cpu_renderer
-perf report
-```
+# View in GUI
+nsys-ui profile_output.nsys-rep
 
-### GPU Profiling
-```bash
-# Navigate to GPU build directory
-cd cuda_gpu/build
-
-# Nsight Systems (system-level profiling)
-nsys profile --output=gpu_profile ./renderer ../obj/diablo3_pose/diablo3_pose.obj
-nsys stats gpu_profile.nsys-rep
-nsys-ui gpu_profile.nsys-rep  # GUI analysis (requires desktop environment)
-
-# Nsight Compute (kernel-level profiling with optimization analysis)
-ncu --section ComputeWorkloadAnalysis \
-    --section MemoryWorkloadAnalysis \
-    --section SpeedOfLight \
-    --section Occupancy \
-    --section LaunchStats \
-    --section WorkloadDistribution \
-    --apply-rules yes \
-    --target-processes all \
-    --export gpu_kernel_profile \
-    --force-overwrite \
-    ./renderer ../obj/diablo3_pose/diablo3_pose.obj
-ncu-ui gpu_kernel_profile.ncu-rep  # GUI analysis (requires desktop environment)
-ncu --import gpu_kernel_profile.ncu-rep --print-rule-details --page details  # Terminal analysis
+# Generate statistics
+nsys stats profile_output.nsys-rep
 ```
 
 ## Output
@@ -193,3 +167,60 @@ ncu --import gpu_kernel_profile.ncu-rep --print-rule-details --page details  # T
 - Corrected CMakeLists.txt source file paths
 - Fixed relative import paths for cross-platform compatibility
 - Standardized CUDA include usage
+
+## Profiling with NVIDIA Nsight
+
+### Nsight Systems (System-Level Profiling)
+```bash
+# Navigate to build directory
+cd cuda_gpu/build
+
+# Generate system-level profile
+nsys profile --output=gpu_system_profile ./renderer ../obj/diablo3_pose/diablo3_pose.obj
+
+# View in GUI (requires display)
+nsys-ui gpu_system_profile.nsys-rep
+
+# Generate statistics report
+nsys stats gpu_system_profile.nsys-rep
+```
+
+### Nsight Compute (Kernel-Level Profiling)
+```bash
+# Navigate to build directory
+cd cuda_gpu/build
+
+# Generate comprehensive kernel profile with all sections enabled
+ncu --section ComputeWorkloadAnalysis \
+    --section MemoryWorkloadAnalysis \
+    --section SpeedOfLight \
+    --section Occupancy \
+    --section LaunchStats \
+    --section WorkloadDistribution \
+    --apply-rules yes \
+    --target-processes all \
+    --export gpu_kernel_profile \
+    --force-overwrite \
+    ./renderer ../obj/diablo3_pose/diablo3_pose.obj
+
+# View detailed analysis in GUI (requires display)
+ncu-ui gpu_kernel_profile.ncu-rep
+
+# Print rule details and performance suggestions to terminal
+ncu --import gpu_kernel_profile.ncu-rep --print-rule-details --page details
+
+# Quick summary of key metrics
+ncu --import gpu_kernel_profile.ncu-rep --print-summary
+```
+
+### Key Profiling Metrics to Analyze
+- **Compute Throughput**: Should be >60% of peak for good utilization
+- **Memory Throughput**: Should be >60% of peak for efficient bandwidth usage
+- **Achieved Occupancy**: Register-limited (typically 66.67% theoretical max)
+- **Issue Slots Busy**: Indicates pipeline utilization
+- **Memory Workload Analysis**: Check for coalescing and bank conflicts
+
+### Common Optimization Findings
+- **Latency-bound workload**: Small problem size limits GPU utilization
+- **Register pressure**: Complex shaders reduce theoretical occupancy
+- **Memory efficiency**: Well-coalesced access patterns with no spilling
